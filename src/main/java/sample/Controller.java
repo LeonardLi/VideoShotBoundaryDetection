@@ -76,6 +76,8 @@ public class Controller implements Initializable {
     @FXML
     private Label label_bitrate;
 
+    int[] sd = new int[4000];
+
     private Main mainApp;
 
     public void setMainApp(Main mainApp) {
@@ -143,11 +145,15 @@ public class Controller implements Initializable {
         }
         text_streaminfo.appendText(textArea);
 
-        IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.mpg").getPath());
-        //set bufferedimages created in 24bit color space
-        mediaReader.setBufferedImageTypeToGenerate(BufferedImage.TYPE_3BYTE_BGR);
-        mediaReader.addListener(new ImageSnapListener());
-        while (mediaReader.readPacket() == null);
+        Platform.runLater(()->{
+            IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.mpg").getPath());
+            //set bufferedimages created in 24bit color space
+            mediaReader.setBufferedImageTypeToGenerate(BufferedImage.TYPE_3BYTE_BGR);
+            mediaReader.addListener(new ImageSnapListener());
+            while (mediaReader.readPacket() == null);
+            updateGallery(snapShots);
+        });
+
         tilePane = new TilePane();
         //scrollPane.setStyle("-fx-background-color: DAE6F3;");
         tilePane.setPadding(new Insets(15, 15, 15, 15));
@@ -166,7 +172,7 @@ public class Controller implements Initializable {
             if (event.getDeltaX() == 0 && event.getDeltaY() != 0)
                 scrollPane.setHvalue(scrollPane.getHvalue() - event.getDeltaY() / this.tilePane.getWidth());
         });
-        updateGallery(snapShots);
+
 
     }
 
