@@ -1,7 +1,6 @@
 package sample;
 
 import javafx.application.Application;
-import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -26,11 +25,12 @@ public class Main extends Application {
         try{
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/sample.fxml"));
             Parent root = loader.load();
-
             primaryStage.setTitle("Hello World");
-            primaryStage.setScene(new Scene(root, 1024, 768));
-            //Controller controller = FXMLLoader.getController();
-           // controller.setMainApp(this);
+            Scene scene = new Scene(root, 1024, 768);
+            scene.getStylesheets().add(getClass().getResource("/scrollButton.css").toExternalForm());
+            primaryStage.setScene(scene);
+            Controller controller = loader.getController();
+            controller.setMainApp(this);
             primaryStage.show();
         }
         catch (IOException e) {

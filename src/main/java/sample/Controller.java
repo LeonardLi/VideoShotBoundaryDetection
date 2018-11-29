@@ -8,8 +8,14 @@ import com.xuggle.xuggler.Global;
 import com.xuggle.xuggler.IContainer;
 import com.xuggle.xuggler.IStream;
 import com.xuggle.xuggler.IStreamCoder;
+import com.xuggle.xuggler.demos.DecodeAndCaptureFrames;
+import com.xuggle.xuggler.demos.DecodeAndPlayAudio;
+import com.xuggle.xuggler.demos.DecodeAndPlayAudioAndVideo;
+import com.xuggle.xuggler.demos.DecodeAndPlayVideo;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
@@ -19,36 +25,50 @@ import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
+import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.TilePane;
+import javafx.scene.media.Media;
+import javafx.scene.media.MediaPlayer;
+import javafx.scene.media.MediaView;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
+import org.apache.commons.math3.stat.descriptive.moment.Mean;
+import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+
 import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.ResourceBundle;
+import java.util.*;
 
 public class Controller implements Initializable {
     private static final Logger logger = LoggerFactory.getLogger(Controller.class);
 
     public static final double SECONDS_BETWEEN_FRAMES = 0.04;
     private static final String outputFilePrefix = "snapshots/";
+    private static final String LEFT_ICON = "/Actions-arrow-left-icon.png";
+    private static final String RIGHT_ICON = "/Actions-arrow-right-icon.png";
+    private static final double speed = 0.10;
+
     private static int mVideoStreamIndex = -1;
     private static long mLastPtsWrite = Global.NO_PTS;
     public static final long MICRO_SECONDS_BETWEEN_FRAMES = (long)(Global.DEFAULT_PTS_PER_SECOND * SECONDS_BETWEEN_FRAMES);
     public SnapShot[]snapShots = new SnapShot[4000];
 
+    private double[] sds = new double[4000];
 
-    private TilePane tilePane;
+    private double Tb = 0.0f;
+    private double Ts = 0.0f;
+    private int Tor = 2;
+
+
+    private HBox hBox;
 
     @FXML
     private ScrollPane scrollPane;
@@ -75,6 +95,15 @@ public class Controller implements Initializable {
     private Label label_durations;
     @FXML
     private Label label_bitrate;
+    @FXML
+    private AnchorPane button_box;
+
+    @FXML
+    private MediaView mediaView;
+
+    private HashMap<Integer,Integer> Cuts = new HashMap<>();
+    private HashMap<Integer,Integer> Fade = new HashMap<>();
+    private HashMap<Integer,Integer> FinalFade = new HashMap<>();
 
     int[] sd = new int[4000];
 
@@ -86,36 +115,29 @@ public class Controller implements Initializable {
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-        //MediaPlayer player = new MediaPlayer(new Media(getClass().getResource("20020924_juve_dk_02a.mpg").toExternalForm()));
-        //MediaView mediaView = new MediaView(player);
+        //DecodeAndCaptureFrames capturer = new DecodeAndCaptureFrames();
+        //DecodeAndPlayAudioAndVideo.main(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
+        //DecodeAndPlayVideo
+        IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
+
+
+
+
+
         IContainer container = IContainer.make();
-
         int result = container.open(getClass().getResource("/20020924_juve_dk_02a.mpg").getPath(),IContainer.Type.READ,null);
+        if (result < 0) throw new RuntimeException("Failed to open media file");
 
-        // query how many streams the call to open found
-        if (result < 0)
-            throw new RuntimeException("Failed to open media file");
-        label_filename.setText("20020924_juve_dk_02a.mpg");
-        int numStreams = container.getNumStreams();
-        label_streams.setText(numStreams+"");
-        // query for the total duration
-        long duration = container.getDuration();
-        label_durations.setText(duration+"");
 
-        // query for the file size
-        long fileSize = container.getFileSize();
-        label_filesize.setText(fileSize+"");
-        // query for the bit rate
-        long bitRate = container.getBitRate();
-        label_bitrate.setText(bitRate+"");
-//        System.out.println("Number of streams: " + numStreams);
-//        System.out.println("Duration (ms): " + duration);
-//        System.out.println("File Size (bytes): " + fileSize);
-//        System.out.println("Bit Rate: " + bitRate);
+        int numStreams = container.getNumStreams(); // query how many streams the call to open found
+        long duration = container.getDuration();// query for the total duration
+        long fileSize = container.getFileSize();// query for the file size
+        long bitRate = container.getBitRate();  // query for the bit rate
         String textArea = "";
         for (int i = 0; i < numStreams; i++) {
             IStream stream = container.getStream(i);
             IStreamCoder coder = stream.getStreamCoder();
+
             textArea += "stream : " + i + "\n" +
                     "type: " + coder.getCodecType() +"\n"+
                     "codec: "+ coder.getCodecID() +"\n"+
@@ -124,55 +146,113 @@ public class Controller implements Initializable {
                     "timebase: "+ stream.getTimeBase().getNumerator()+"/"+ stream.getTimeBase().getDenominator()+"\n"+
                     "format: "+ coder.getPixelType()+"\n"+
                     "frame-rate: "+ coder.getFrameRate().getDouble()+"\n";
-
-
-//            System.out.println("*** Start of Stream Info ***");
-//            System.out.printf("stream : %d\n", i);
-//            System.out.printf("type: %s;\n", coder.getCodecType());
-//            System.out.printf("codec: %s\n", coder.getCodecID());
-//            System.out.printf("durarion: %s\n", stream.getDuration());
-//
-//            System.out.printf("start time: %s;\n", container.getStartTime());
-//            System.out.printf("timebase: %d/%d;\n", stream.getTimeBase().getNumerator(), stream.getTimeBase().getDenominator());
-//            System.out.printf("coder tb: %d/%d;\n", coder.getTimeBase().getNumerator(), coder.getTimeBase().getDenominator());
-//            System.out.println();
-//            System.out.printf("width: %d;\n", coder.getWidth());
-//            System.out.printf("height: %d;\n", coder.getHeight());
-//            System.out.printf("format: %s;\n", coder.getPixelType());
-//            System.out.printf("frame-rate: %5.2f;\n", coder.getFrameRate().getDouble());
-//            System.out.println();
-//            System.out.println("*** End of Stream Info ***");
         }
+
+        label_filename.setText("20020924_juve_dk_02a.avi");
+        label_streams.setText(numStreams+"");
+        label_durations.setText(duration+"");
+        label_filesize.setText(fileSize+"");
+        label_bitrate.setText(bitRate+"");
         text_streaminfo.appendText(textArea);
 
+        hBox = new HBox();
+        hBox.setSpacing(10);
+        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollPane.setFitToHeight(true);
+        scrollPane.setContent(hBox);
+        addButtons(scrollPane, button_box);
+
         Platform.runLater(()->{
-            IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.mpg").getPath());
             //set bufferedimages created in 24bit color space
             mediaReader.setBufferedImageTypeToGenerate(BufferedImage.TYPE_3BYTE_BGR);
             mediaReader.addListener(new ImageSnapListener());
             while (mediaReader.readPacket() == null);
+            calculateCut();
             updateGallery(snapShots);
+
         });
 
-        tilePane = new TilePane();
-        //scrollPane.setStyle("-fx-background-color: DAE6F3;");
-        tilePane.setPadding(new Insets(15, 15, 15, 15));
-        tilePane.setHgap(15);
-        tilePane.setVgap(15);
-        tilePane.setPrefRows(1);
 
+    }
 
+    private void calculateCut() {
+        //calculate sds
+        for (int i = 0; i < 3999; i++) {
+            for (int j = 0; j < 25; j++) {
+                sds[i] += Math.abs(snapShots[i+1].getIntensityHistogram()[j] - snapShots[i].getIntensityHistogram()[j]);
+            }
+        }
+        // Tb
+        Mean mean = new Mean();
+        StandardDeviation std = new StandardDeviation();
+        double stdValue = std.evaluate(sds);
+        double meanValue = mean.evaluate(sds);
 
-        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
-        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scrollPane.setFitToHeight(true);
-        scrollPane.setPannable(true);
-        scrollPane.setContent(tilePane);
-        scrollPane.setOnScroll(event -> {
-            if (event.getDeltaX() == 0 && event.getDeltaY() != 0)
-                scrollPane.setHvalue(scrollPane.getHvalue() - event.getDeltaY() / this.tilePane.getWidth());
+        Tb = meanValue + 11 * stdValue;
+
+        // Ts
+        Ts = 2 * meanValue;
+
+        // Determine Cs,Ce,Fs,Fe
+        int current_start = 0;
+        int current_tor = 0;
+        boolean inLoop = false;
+        boolean isContinuous = false;
+        for (int i = 0; i < 3999; i++) {
+            if(sds[i] >= Tb) {
+                Cuts.put(i, i+1);
+                if (inLoop) {
+                    inLoop = false;
+                    if (current_start != i-1)
+                    Fade.put(current_start,i-1);
+                }
+            }
+            if (sds[i] < Tb && sds[i] >= Ts) {
+                if (!inLoop){
+                    inLoop = true;
+                    current_start = i;
+                }
+
+            }
+            if (sds[i] < Ts) {
+                if (inLoop){
+                        current_tor++;
+                        if (current_tor >= Tor){
+                            current_tor = 0;
+                            inLoop = false;
+                            Fade.put(current_start, i);
+                        }
+                }
+
+            }
+        }
+        for (int key : Fade.keySet()) {
+            int start = key;
+            int end = Fade.get(key);
+            double sum = 0l;
+            for (int i = start; i <= end; i++) {
+                sum+=sds[i];
+            }
+            if (sum >= Tb){
+                FinalFade.put(key, Fade.get(key));
+            }
+        }
+
+        List<Integer> keys = new ArrayList<>(Cuts.keySet());
+        List<Integer> keys2 = new ArrayList<>(FinalFade.keySet());
+        Collections.sort(keys);
+        Collections.sort(keys2);
+        //Cut
+        System.out.println("Ce:");
+        keys.forEach(key -> {
+            System.out.println(key+1000+"-"+(Cuts.get(key)+1000));
         });
 
+        //Fade
+        System.out.println("Fs:");
+        keys2.forEach(key -> {
+            System.out.println(key+1000+"-"+(FinalFade.get(key)+1000));
+        });
 
     }
 
@@ -187,8 +267,9 @@ public class Controller implements Initializable {
             if (mVideoStreamIndex == 0){
                 if (mLastPtsWrite == Global.NO_PTS)
                     mLastPtsWrite = event.getTimeStamp() - MICRO_SECONDS_BETWEEN_FRAMES;
-                if (event.getTimeStamp() / Global.DEFAULT_PTS_PER_SECOND >= 40 && event.getTimeStamp()/Global.DEFAULT_PTS_PER_SECOND <=199.960) {
-                    if (event.getTimeStamp() - mLastPtsWrite >= MICRO_SECONDS_BETWEEN_FRAMES) {
+
+                if ((double)event.getTimeStamp() / Global.DEFAULT_PTS_PER_SECOND >= 39.96/*40.88,40*/ && (double)event.getTimeStamp()/Global.DEFAULT_PTS_PER_SECOND <= 199.92/*200.84,199.960*/) {
+                    if ((double)event.getTimeStamp() - mLastPtsWrite >= MICRO_SECONDS_BETWEEN_FRAMES) {
                         //String outputFilename = dumpImageToFile(event.getImage(), event.getTimeStamp());
                         //String outputFilename = dumpImageToMemory(event.getImage());
                         snapShots[count++] = new SnapShot(event.getImage(),event.getTimeStamp());
@@ -205,7 +286,6 @@ public class Controller implements Initializable {
         }
 
         private String dumpImageToMemory(BufferedImage image){
-
             return null;
         }
 
@@ -226,28 +306,17 @@ public class Controller implements Initializable {
 
         //if (tilePane.getChildren().size() != 0) tilePane.getChildren().removeAll(tilePane.getChildren());
         Platform.runLater(() -> {
-            int amount = 1;
-            for (final SnapShot object : imageObjects) {
+
+            for (int i  = 0; i < imageObjects.length; i++) {
                 //if (object.getFilename().equals(this.previewImageObject.getFilename())) continue;
-                amount++;
-                if (amount%100 == 0){
-                    BorderPane borderPane = new BorderPane();
-                    //AnchorPane pane = new AnchorPane();
-                    CheckBox checkBox = new CheckBox();
+                if ( Cuts.keySet().contains(i-1) || FinalFade.keySet().contains(i-2)){
 
-                    ImageView imageView;
-                    Label label = new Label(object.getFilename());
-                    label.setMaxWidth(50);
-                    imageView = createImageView(object);
-                    borderPane.setCenter(imageView);
-                    HBox hBox = new HBox();
-
-                    hBox.getChildren().add(checkBox);
-                    hBox.getChildren().add(label);
-                    hBox.setSpacing(10);
-                    hBox.setPadding(new Insets(2, 0, 2, 0));
-                    borderPane.setBottom(hBox);
-                    tilePane.getChildren().addAll(borderPane);
+                    ImageView imageView = createImageView(imageObjects[i]);
+                    imageView.setFitHeight(160);
+                    imageView.setPreserveRatio(true);
+                    imageView.setSmooth(true);
+                    imageView.setCache(true);
+                    hBox.getChildren().addAll(imageView);
                 }
 
             }
@@ -266,39 +335,51 @@ public class Controller implements Initializable {
 
         imageView.setOnMouseClicked(event -> {
             if (event.getButton().equals(MouseButton.PRIMARY)) {
-
-//                if (event.getClickCount() == 2) {
-//                    try {
-//                        BorderPane borderPane = new BorderPane();
-//                        ImageView imageViewPreview = new ImageView();
-//                        Image orinalImage = new Image(new FileInputStream(imageObject.getImagePath()));
-//                        imageViewPreview.setImage(orinalImage);
-//                        //imageView.setStyle("-fx-background-color: BLACK");
-//                        imageViewPreview.setFitHeight(mainApp.getPrimaryStage().getHeight() / 2 + 20);
-//                        imageViewPreview.setFitWidth(mainApp.getPrimaryStage().getWidth() / 2 + 20);
-//                        imageViewPreview.setPreserveRatio(true);
-//                        imageViewPreview.setSmooth(true);
-//                        imageViewPreview.setCache(true);
-//                        borderPane.setCenter(imageViewPreview);
-//                        borderPane.setStyle("-fx-background-color: BLACK");
-//                        Stage newStage = new Stage();
-//                        //newStage.setWidth(image.getWidth() + 20);
-//                        //newStage.setHeight(image.getHeight() + 20);
-//                        newStage.setTitle(imageObject.getFilename());
-//                        Scene scene = new Scene(borderPane, Color.BLACK);
-//                        newStage.setScene(scene);
-//                        newStage.show();
-//                    } catch (FileNotFoundException e) {
-//                        e.printStackTrace();
-//                    }
-//
-//                }
+                //play the video
+                MediaPlayer.Status status = mediaView.getMediaPlayer().getStatus();
+                if (status == MediaPlayer.Status.PLAYING) {
+                    mediaView.getMediaPlayer().stop();
+                } else if (status == MediaPlayer.Status.READY){
+                    mediaView.getMediaPlayer().play();
+                }
             }
 
         });
 
 
         return imageView;
+    }
+
+    private void addButtons(final ScrollPane scrollPane, final AnchorPane buttonBox)
+    {
+        Button right = new Button();
+        right.setPrefSize(50, 150);
+        right.setGraphic(new ImageView(new Image(RIGHT_ICON)));
+        //Making the scroll move right
+        right.setOnAction(new EventHandler<ActionEvent>() {
+
+            @Override
+            public void handle(ActionEvent arg0) {
+                scrollPane.setHvalue(scrollPane.getHvalue() + speed);
+            }
+        });
+
+        Button left = new Button("Left");
+        left.setPrefSize(50, 150);
+        left.setGraphic(new ImageView(new Image(LEFT_ICON)));
+        //Making the scroll move left
+        left.setOnAction(new EventHandler<ActionEvent>() {
+
+            @Override
+            public void handle(ActionEvent arg0) {
+                scrollPane.setHvalue(scrollPane.getHvalue() - speed);
+            }
+        });
+
+
+        buttonBox.setLeftAnchor(left, 1.0);
+        buttonBox.setRightAnchor(right, 1.0);
+        buttonBox.getChildren().addAll(left,right);
     }
 
 }
