@@ -10,11 +10,13 @@ public class SnapShot {
     private String filename;
     private long timestamp;
     private int[] intensityHistogram = new int[25] ;
+    private int id;
 
-    public SnapShot(BufferedImage image, long timestamp){
+    public SnapShot(BufferedImage image, long timestamp, int index){
         this.bufferedImage = image;
         this.filename = "frame_"+timestamp+".png";
         this.timestamp = timestamp;
+        this.id = index;
         initialize();
     }
 
@@ -62,5 +64,9 @@ public class SnapShot {
 
     public void setIntensityHistogram(int[] intensityHistogram) {
         this.intensityHistogram = intensityHistogram;
+    }
+
+    public int getId() {
+        return id;
     }
 }

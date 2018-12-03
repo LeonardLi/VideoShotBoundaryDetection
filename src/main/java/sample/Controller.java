@@ -1,19 +1,14 @@
 package sample;
 
-import com.xuggle.mediatool.IMediaReader;
-import com.xuggle.mediatool.MediaListenerAdapter;
-import com.xuggle.mediatool.ToolFactory;
+import com.xuggle.mediatool.*;
 import com.xuggle.mediatool.event.IVideoPictureEvent;
-import com.xuggle.xuggler.Global;
-import com.xuggle.xuggler.IContainer;
-import com.xuggle.xuggler.IStream;
-import com.xuggle.xuggler.IStreamCoder;
-import com.xuggle.xuggler.demos.DecodeAndCaptureFrames;
-import com.xuggle.xuggler.demos.DecodeAndPlayAudio;
+import com.xuggle.xuggler.*;
+import com.xuggle.xuggler.demos.*;
 import com.xuggle.xuggler.demos.DecodeAndPlayAudioAndVideo;
-import com.xuggle.xuggler.demos.DecodeAndPlayVideo;
 import javafx.application.Platform;
+import javafx.embed.swing.JFXPanel;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.embed.swing.SwingNode;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.fxml.FXML;
@@ -40,12 +35,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class Controller implements Initializable {
     private static final Logger logger = LoggerFactory.getLogger(Controller.class);
@@ -99,13 +98,18 @@ public class Controller implements Initializable {
     private AnchorPane button_box;
 
     @FXML
-    private MediaView mediaView;
+    private ImageView mediaplayer;
+
+    private Thread thread;
+    private List<VideoPlayer> threads = new ArrayList<>();
+    private VideoPlayer videoPlayer;
+
+
+
 
     private HashMap<Integer,Integer> Cuts = new HashMap<>();
     private HashMap<Integer,Integer> Fade = new HashMap<>();
     private HashMap<Integer,Integer> FinalFade = new HashMap<>();
-
-    int[] sd = new int[4000];
 
     private Main mainApp;
 
@@ -119,10 +123,7 @@ public class Controller implements Initializable {
         //DecodeAndPlayAudioAndVideo.main(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
         //DecodeAndPlayVideo
         IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
-
-
-
-
+        //MediaPlayer player = new MediaPlayer();
 
         IContainer container = IContainer.make();
         int result = container.open(getClass().getResource("/20020924_juve_dk_02a.mpg").getPath(),IContainer.Type.READ,null);
@@ -157,10 +158,23 @@ public class Controller implements Initializable {
 
         hBox = new HBox();
         hBox.setSpacing(10);
+        //tilePane = new TilePane();
+
+
         scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
         scrollPane.setFitToHeight(true);
         scrollPane.setContent(hBox);
-        addButtons(scrollPane, button_box);
+        //addButtons(scrollPane, button_box);
+
+        try{
+            FileInputStream fis = new FileInputStream(getClass().getResource("/snapshots/frame_39987900.png").getPath());
+            Image image = new Image(fis);
+            mediaplayer.setImage(image);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+
 
         Platform.runLater(()->{
             //set bufferedimages created in 24bit color space
@@ -171,7 +185,8 @@ public class Controller implements Initializable {
             updateGallery(snapShots);
 
         });
-
+        videoPlayer = new VideoPlayer(mediaplayer);
+        thread = new Thread(videoPlayer);
 
     }
 
@@ -182,12 +197,13 @@ public class Controller implements Initializable {
                 sds[i] += Math.abs(snapShots[i+1].getIntensityHistogram()[j] - snapShots[i].getIntensityHistogram()[j]);
             }
         }
-        // Tb
+
         Mean mean = new Mean();
         StandardDeviation std = new StandardDeviation();
         double stdValue = std.evaluate(sds);
         double meanValue = mean.evaluate(sds);
 
+        // Tb
         Tb = meanValue + 11 * stdValue;
 
         // Ts
@@ -197,7 +213,6 @@ public class Controller implements Initializable {
         int current_start = 0;
         int current_tor = 0;
         boolean inLoop = false;
-        boolean isContinuous = false;
         for (int i = 0; i < 3999; i++) {
             if(sds[i] >= Tb) {
                 Cuts.put(i, i+1);
@@ -226,6 +241,7 @@ public class Controller implements Initializable {
 
             }
         }
+
         for (int key : Fade.keySet()) {
             int start = key;
             int end = Fade.get(key);
@@ -242,17 +258,17 @@ public class Controller implements Initializable {
         List<Integer> keys2 = new ArrayList<>(FinalFade.keySet());
         Collections.sort(keys);
         Collections.sort(keys2);
-        //Cut
-        System.out.println("Ce:");
-        keys.forEach(key -> {
-            System.out.println(key+1000+"-"+(Cuts.get(key)+1000));
-        });
-
-        //Fade
-        System.out.println("Fs:");
-        keys2.forEach(key -> {
-            System.out.println(key+1000+"-"+(FinalFade.get(key)+1000));
-        });
+//        //Cut
+//        System.out.println("Ce:");
+//        keys.forEach(key -> {
+//            System.out.println(key+1000+"-"+(Cuts.get(key)+1000));
+//        });
+//
+//        //Fade
+//        System.out.println("Fs:");
+//        keys2.forEach(key -> {
+//            System.out.println(key+1000+"-"+(FinalFade.get(key)+1000));
+//        });
 
     }
 
@@ -272,7 +288,8 @@ public class Controller implements Initializable {
                     if ((double)event.getTimeStamp() - mLastPtsWrite >= MICRO_SECONDS_BETWEEN_FRAMES) {
                         //String outputFilename = dumpImageToFile(event.getImage(), event.getTimeStamp());
                         //String outputFilename = dumpImageToMemory(event.getImage());
-                        snapShots[count++] = new SnapShot(event.getImage(),event.getTimeStamp());
+                        snapShots[count] = new SnapShot(event.getImage(),event.getTimeStamp(), count);
+                        count++;
                         //double seconds= ((double) event.getTimeStamp())/ Global.DEFAULT_PTS_PER_SECOND;
                         //System.out.printf("at elapsed time of %6.3f seconds wrote: %s\n", seconds, outputFilename);
                         mLastPtsWrite += MICRO_SECONDS_BETWEEN_FRAMES;
@@ -304,13 +321,12 @@ public class Controller implements Initializable {
 
     private void updateGallery(SnapShot[] imageObjects) {
 
-        //if (tilePane.getChildren().size() != 0) tilePane.getChildren().removeAll(tilePane.getChildren());
         Platform.runLater(() -> {
 
             for (int i  = 0; i < imageObjects.length; i++) {
-                //if (object.getFilename().equals(this.previewImageObject.getFilename())) continue;
-                if ( Cuts.keySet().contains(i-1) || FinalFade.keySet().contains(i-2)){
-
+                if ( Cuts.keySet().contains(i) || FinalFade.keySet().contains(i-1)){
+                    System.out.println(i);
+                    System.out.println(imageObjects[i].getId());
                     ImageView imageView = createImageView(imageObjects[i]);
                     imageView.setFitHeight(160);
                     imageView.setPreserveRatio(true);
@@ -325,7 +341,7 @@ public class Controller implements Initializable {
     }
 
     private ImageView createImageView(final SnapShot imageObject) {
-        ImageView imageView = null;
+        ImageView imageView;
 
         final Image image = SwingFXUtils.toFXImage(imageObject.getBufferedImage(), null);
 
@@ -334,14 +350,36 @@ public class Controller implements Initializable {
         //imageView.setPreserveRatio(true);
 
         imageView.setOnMouseClicked(event -> {
+            //play the video
             if (event.getButton().equals(MouseButton.PRIMARY)) {
-                //play the video
-                MediaPlayer.Status status = mediaView.getMediaPlayer().getStatus();
-                if (status == MediaPlayer.Status.PLAYING) {
-                    mediaView.getMediaPlayer().stop();
-                } else if (status == MediaPlayer.Status.READY){
-                    mediaView.getMediaPlayer().play();
+                if (event.getClickCount() == 2) {
+                    int start;
+                    int end;
+                    //System.out.println("=========");
+                    //System.out.println(imageObject.getFilename().substring(6,14));
+                    System.out.println(imageObject.getId());
+                    if (Cuts.containsKey(imageObject.getId())){
+                        start = imageObject.getId();
+                        end = imageObject.getId()+1;
+                    } else {
+                        start = imageObject.getId() - 1;
+                        end = FinalFade.get(imageObject.getId() - 1);
+                    }
+
+                    System.out.println(thread.getId()+thread.getState().toString());
+                    if (thread.getState() == Thread.State.RUNNABLE || thread.getState() == Thread.State.TIMED_WAITING) {
+                        //playing other shots
+                        threads.forEach(thread -> thread.terminate());
+
+                    }
+                    videoPlayer = new VideoPlayer(mediaplayer);
+                    videoPlayer.setDurationAndStatus(start, end);
+                    thread = new Thread(videoPlayer);
+                    threads.add(videoPlayer);
+                    thread.start();
+
                 }
+
             }
 
         });
@@ -350,8 +388,7 @@ public class Controller implements Initializable {
         return imageView;
     }
 
-    private void addButtons(final ScrollPane scrollPane, final AnchorPane buttonBox)
-    {
+    private void addButtons(final ScrollPane scrollPane, final AnchorPane buttonBox) {
         Button right = new Button();
         right.setPrefSize(50, 150);
         right.setGraphic(new ImageView(new Image(RIGHT_ICON)));
@@ -382,4 +419,70 @@ public class Controller implements Initializable {
         buttonBox.getChildren().addAll(left,right);
     }
 
+    private void createVideo(int start, int end){
+        final IMediaWriter writer = ToolFactory.makeWriter(start+"_"+end);
+        long startTime = System.nanoTime();
+        for(int index = start; index < end ; index++) {
+            BufferedImage bgr = convertToType(snapShots[index].getBufferedImage(), BufferedImage.TYPE_3BYTE_BGR);
+            writer.encodeVideo(0, bgr, System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
+            try {
+                Thread.sleep((long) (1000/25));
+            } catch (InterruptedException e) {
+
+            }
+        }
+        writer.close();
+    }
+
+    private BufferedImage convertToType(BufferedImage sourceImage, int targetType) {
+        BufferedImage image;
+
+        if (sourceImage.getType() == targetType) {
+            image = sourceImage;
+        } else {
+            image = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(), targetType);
+            image.getGraphics().drawImage(sourceImage, 0, 0, null);
+        }
+        return image;
+    }
+
+    private class VideoPlayer implements Runnable{
+        ImageView view;
+        private volatile boolean running = true;
+        int start;
+        int end;
+        public VideoPlayer(ImageView view){
+            this.view = view;
+        }
+        public void terminate() {
+            this.running = false;
+        }
+
+        @Override
+        public void run() {
+            int i = start;
+            while (running) {
+                try{
+                    //play the video
+                    synchronized (view){
+                        view.setImage(SwingFXUtils.toFXImage(snapShots[i++].getBufferedImage(), null));
+                        if (i == end) i = start;
+                        view.setCache(true);
+                        Thread.sleep(40);
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+            }
+            System.out.println("Thread "+Thread.currentThread().getId()+" stopped");
+        }
+
+        public void setDurationAndStatus(int start, int end){
+            this.start = start;
+            this.end = end;
+            this.running = true;
+        }
+
+    }
 }
