@@ -14,6 +14,7 @@ public class Main extends Application {
 
     private Stage primaryStage;
     private Scene primaryScene;
+    private Controller controller;
 
     @Override
     public void start(Stage primaryStage) throws Exception{
@@ -22,15 +23,29 @@ public class Main extends Application {
 
     }
 
+    @Override
+    public void stop() throws Exception {
+        if(controller.getAudioPlayer() != null) {
+            controller.getVideoPlayer().terminate();
+        }
+        if (controller.getVideoPlayer() != null) {
+            controller.getAudioPlayer().terminate();
+        }
+
+        controller.closeJavaSound();
+        super.stop();
+
+    }
+
     private void initLayout(){
         try{
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/sample.fxml"));
             Parent root = loader.load();
-            primaryStage.setTitle("Hello World");
+            primaryStage.setTitle("Video Shots Detection");
             primaryScene = new Scene(root, 1024, 768);
-            primaryScene.getStylesheets().add(getClass().getResource("/scrollButton.css").toExternalForm());
+            //primaryScene.getStylesheets().add(getClass().getResource("/scrollButton.css").toExternalForm());
             primaryStage.setScene(primaryScene);
-            Controller controller = loader.getController();
+            controller = loader.getController();
             controller.setMainApp(this);
             primaryStage.show();
         }

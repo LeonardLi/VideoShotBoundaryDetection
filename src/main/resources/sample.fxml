@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ButtonBar?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.SplitPane?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
-<?import javafx.scene.layout.AnchorPane?>
-<?import javafx.scene.layout.VBox?>
-<?import javafx.scene.media.MediaView?>
-
-<?import javafx.embed.swing.SwingNode?>
 <?import javafx.scene.image.ImageView?>
+<?import javafx.scene.layout.AnchorPane?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
 <AnchorPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="768.0" prefWidth="1024.0" xmlns="http://javafx.com/javafx/8.0.172-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="sample.Controller">
    <children>
       <SplitPane dividerPositions="0.7" orientation="VERTICAL" prefHeight="400.0" prefWidth="600.0" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
@@ -22,33 +25,69 @@
                     <items>
                       <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="160.0" prefWidth="100.0">
                            <children>
-                              <VBox layoutX="8.0" layoutY="40.0" prefHeight="200.0" prefWidth="100.0">
-                                 <children>
-                                    <Label prefHeight="0.0" prefWidth="62.0" text="FileName" />
-                                    <Label layoutX="10.0" layoutY="10.0" text="File Size" />
-                                    <Label layoutX="10.0" layoutY="27.0" text="Streams" />
-                                    <Label layoutX="10.0" layoutY="44.0" text="Durations" />
-                                    <Label layoutX="10.0" layoutY="61.0" text="Bit Rate" />
-                                 </children>
-                              </VBox>
-                              <VBox layoutX="100.0" layoutY="40.0" prefHeight="200.0" prefWidth="100.0">
-                                 <children>
-                                    <Label fx:id="label_filename" prefHeight="0.0" text="NA" />
-                                    <Label fx:id="label_filesize" layoutX="10.0" layoutY="10.0" text="NA" />
-                                    <Label fx:id="label_streams" layoutX="10.0" layoutY="27.0" text="NA" />
-                                    <Label fx:id="label_durations" layoutX="10.0" layoutY="44.0" text="NA" />
-                                    <Label fx:id="label_bitrate" layoutX="10.0" layoutY="61.0" text="NA" />
-                                 </children>
-                              </VBox>
-                              <TextArea fx:id="text_streaminfo" layoutX="10.0" layoutY="200.0" prefHeight="300.0" prefWidth="400.0" />
-                              <Button fx:id="button_choose" layoutX="328.0" layoutY="40.0" mnemonicParsing="false" text="Choose" />
-                              <TextField fx:id="text_framestart" layoutX="295.0" layoutY="104.0" prefWidth="50.0" />
-                              <TextField fx:id="text_frameend" layoutX="358.0" layoutY="104.0" prefWidth="50.0" />
-                              <Label layoutX="312.0" layoutY="84.0" text="Frame Range" />
-                           </children></AnchorPane>
+                              <TextArea fx:id="text_streaminfo" layoutX="20.0" layoutY="210.0" prefHeight="300.0" prefWidth="400.0" />
+                              <BorderPane prefHeight="200.0" prefWidth="400.0" AnchorPane.leftAnchor="20.0" AnchorPane.topAnchor="20.0">
+                                 <left>
+                                    <VBox prefHeight="200.0" prefWidth="100.0" spacing="5.0" BorderPane.alignment="CENTER">
+                                       <children>
+                                          <Label prefHeight="0.0" prefWidth="62.0" text="FileName" />
+                                          <Label layoutX="10.0" layoutY="10.0" text="File Size" />
+                                          <Label layoutX="10.0" layoutY="27.0" text="Streams" />
+                                          <Label layoutX="10.0" layoutY="44.0" text="Durations" />
+                                          <Label layoutX="10.0" layoutY="61.0" text="Bit Rate" />
+                                       </children>
+                                       <padding>
+                                          <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+                                       </padding>
+                                    </VBox>
+                                 </left>
+                                 <top>
+                                    <Label text="Video File Info" BorderPane.alignment="CENTER" />
+                                 </top>
+                                 <bottom>
+                                    <HBox alignment="BASELINE_CENTER" prefHeight="116.0" prefWidth="176.0" spacing="10.0" BorderPane.alignment="CENTER">
+                                       <children>
+                                          <Button fx:id="button_choose" mnemonicParsing="false" text="Choose" />
+                                          <Label text="Frame Range" />
+                                          <TextField fx:id="text_framestart" prefWidth="80.0" />
+                                          <TextField fx:id="text_frameend" prefWidth="80.0" />
+                                       </children>
+                                       <padding>
+                                          <Insets left="15.0" right="15.0" />
+                                       </padding>
+                                    </HBox>
+                                 </bottom>
+                                 <center>
+                                    <VBox prefHeight="200.0" prefWidth="100.0" spacing="5.0" BorderPane.alignment="CENTER">
+                                       <children>
+                                          <Label fx:id="label_filename" prefHeight="0.0" text="NA" />
+                                          <Label fx:id="label_filesize" layoutX="10.0" layoutY="10.0" text="NA" />
+                                          <Label fx:id="label_streams" layoutX="10.0" layoutY="27.0" text="NA" />
+                                          <Label fx:id="label_durations" layoutX="10.0" layoutY="44.0" text="NA" />
+                                          <Label fx:id="label_bitrate" layoutX="10.0" layoutY="61.0" text="NA" />
+                                       </children>
+                                       <padding>
+                                          <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+                                       </padding>
+                                    </VBox>
+                                 </center>
+                              </BorderPane>
+                           </children>
+                        </AnchorPane>
                       <AnchorPane minHeight="0.0" minWidth="0.0" prefHeight="160.0" prefWidth="100.0">
                           <children>
-                            <ImageView fx:id="mediaplayer"/>
+                              <VBox alignment="TOP_CENTER" layoutX="20.0" layoutY="20.0" AnchorPane.leftAnchor="60.0" AnchorPane.topAnchor="40.0">
+                                 <children>
+                                  <ImageView fx:id="mediaplayer" />
+                                    <ProgressBar fx:id="progressbar_videoPlay" prefWidth="334.0" progress="0.0" />
+                                    <ButtonBar prefHeight="40.0" prefWidth="200.0">
+                                      <buttons>
+                                          <Button fx:id="button_play" mnemonicParsing="false" text="Play" />
+                                          <Button fx:id="button_pause" mnemonicParsing="false" text="Pause" />
+                                      </buttons>
+                                    </ButtonBar>
+                                 </children>
+                              </VBox>
                           </children>
                       </AnchorPane>
                     </items>
@@ -56,7 +95,14 @@
                </children></AnchorPane>
           <AnchorPane fx:id="scrool_AnchorPane" minHeight="0.0" minWidth="0.0" prefHeight="100.0" prefWidth="160.0">
                <children>
-                  <ScrollPane fx:id="scrollPane" layoutY="2.0" nodeOrientation="LEFT_TO_RIGHT" prefHeight="226.0" prefWidth="1022.0" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0" />
+                  <ScrollPane fx:id="scrollPane" layoutY="2.0" nodeOrientation="LEFT_TO_RIGHT" prefHeight="226.0" prefWidth="1022.0" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
+                     <content>
+                        <HBox fx:id="hBox" prefHeight="100.0" prefWidth="200.0" spacing="10.0">
+                           <padding>
+                              <Insets bottom="20.0" left="20.0" right="20.0" top="20.0" />
+                           </padding>
+                        </HBox>
+                     </content></ScrollPane>
                   <!--<AnchorPane fx:id="button_box" prefHeight="226.0" prefWidth="1022.0" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0" /> -->
                </children>
           </AnchorPane>

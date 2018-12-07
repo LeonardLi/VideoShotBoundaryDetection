@@ -1,79 +1,69 @@
 package sample;
 
-import com.xuggle.mediatool.*;
-import com.xuggle.mediatool.event.IVideoPictureEvent;
+import com.xuggle.mediatool.IMediaWriter;
+import com.xuggle.mediatool.ToolFactory;
 import com.xuggle.xuggler.*;
-import com.xuggle.xuggler.demos.*;
-import com.xuggle.xuggler.demos.DecodeAndPlayAudioAndVideo;
 import javafx.application.Platform;
-import javafx.embed.swing.JFXPanel;
 import javafx.embed.swing.SwingFXUtils;
-import javafx.embed.swing.SwingNode;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
-import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
-import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.AnchorPane;
-import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.TilePane;
-import javafx.scene.media.Media;
-import javafx.scene.media.MediaPlayer;
-import javafx.scene.media.MediaView;
-import javafx.scene.paint.Color;
-import javafx.stage.Stage;
+import javafx.stage.FileChooser;
 import org.apache.commons.math3.stat.descriptive.moment.Mean;
 import org.apache.commons.math3.stat.descriptive.moment.StandardDeviation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.imageio.ImageIO;
-import javax.swing.*;
+import javax.sound.sampled.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
-
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.net.URL;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+
 
 public class Controller implements Initializable {
     private static final Logger logger = LoggerFactory.getLogger(Controller.class);
 
-    public static final double SECONDS_BETWEEN_FRAMES = 0.04;
+    private static SourceDataLine mLine;
+
     private static final String outputFilePrefix = "snapshots/";
-    private static final String LEFT_ICON = "/Actions-arrow-left-icon.png";
-    private static final String RIGHT_ICON = "/Actions-arrow-right-icon.png";
-    private static final double speed = 0.10;
 
-    private static int mVideoStreamIndex = -1;
-    private static long mLastPtsWrite = Global.NO_PTS;
-    public static final long MICRO_SECONDS_BETWEEN_FRAMES = (long)(Global.DEFAULT_PTS_PER_SECOND * SECONDS_BETWEEN_FRAMES);
-    public SnapShot[]snapShots = new SnapShot[4000];
+    private static int FRAME_START;
+    private static int FRAME_END;
 
-    private double[] sds = new double[4000];
 
+    public SnapShot[]snapShots;
+
+    private double[] sds;
     private double Tb = 0.0f;
     private double Ts = 0.0f;
     private int Tor = 2;
 
-
+    @FXML
     private HBox hBox;
+
+    private ProgressBar pb;
 
     @FXML
     private ScrollPane scrollPane;
 
     @FXML
     private Button button_choose;
+
+    @FXML
+    private Button button_play;
+
+    @FXML
+    private Button button_pause;
 
     @FXML
     private TextArea text_streaminfo;
@@ -86,32 +76,46 @@ public class Controller implements Initializable {
 
     @FXML
     private Label label_filename;
+
     @FXML
     private Label label_filesize;
+
     @FXML
     private Label label_streams;
+
     @FXML
     private Label label_durations;
+
     @FXML
     private Label label_bitrate;
-    @FXML
-    private AnchorPane button_box;
 
     @FXML
     private ImageView mediaplayer;
 
-    private Thread thread;
-    private List<VideoPlayer> threads = new ArrayList<>();
+    @FXML
+    private ProgressBar progressbar_videoPlay;
+
+    private Thread videoThread;
+    private Thread audioThread;
+    private List<VideoPlayer> videoThreads = new ArrayList<>();
+    private List<AudioPlayer> audioThreads = new ArrayList<>();
     private VideoPlayer videoPlayer;
+    private AudioPlayer audioPlayer;
 
-
-
-
-    private HashMap<Integer,Integer> Cuts = new HashMap<>();
-    private HashMap<Integer,Integer> Fade = new HashMap<>();
-    private HashMap<Integer,Integer> FinalFade = new HashMap<>();
+    private HashMap<Integer,Integer> Cuts;
+    private HashMap<Integer,Integer> Fade;
+    private HashMap<Integer,Integer> FinalFade;
+    private LinkedList<Integer> Starters;
 
     private Main mainApp;
+    private IStreamCoder audioCoder;
+    private IStreamCoder videoCoder;
+    private int audioStreamId = -1;
+    private int videoStreamId = -1;
+    private IContainer container;
+
+    private Map<Long,IAudioSamples> audioSamplesMap;
+    private List<Long> audioTimeStamps;
 
     public void setMainApp(Main mainApp) {
         this.mainApp = mainApp;
@@ -121,24 +125,104 @@ public class Controller implements Initializable {
     public void initialize(URL location, ResourceBundle resources) {
         //DecodeAndCaptureFrames capturer = new DecodeAndCaptureFrames();
         //DecodeAndPlayAudioAndVideo.main(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
-        //DecodeAndPlayVideo
-        IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
-        //MediaPlayer player = new MediaPlayer();
 
-        IContainer container = IContainer.make();
-        int result = container.open(getClass().getResource("/20020924_juve_dk_02a.mpg").getPath(),IContainer.Type.READ,null);
+        //IMediaReader mediaReader = ToolFactory.makeReader(getClass().getResource("/20020924_juve_dk_02a.avi").getPath());
+
+        hBox.setSpacing(10);
+        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
+        scrollPane.setFitToHeight(true);
+
+        button_choose.setOnMouseClicked(event -> {
+            //shutdown exist
+            if (audioPlayer != null) {
+                audioPlayer.terminate();
+            }
+            if (videoPlayer != null) {
+                videoPlayer.terminate();
+            }
+            try{
+                FileInputStream fis = new FileInputStream(getClass().getResource("/snapshots/bg.png").getPath());
+                Image image = new Image(fis);
+                mediaplayer.setImage(image);
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            }
+            progressbar_videoPlay.setProgress(0.0);
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Choose Video File");
+
+
+            File file = fileChooser.showOpenDialog(mainApp.getPrimaryStage());
+            if (file != null) {
+                loadFile(file);
+            }
+        });
+
+        button_play.setOnMouseClicked(event -> {
+            if (videoPlayer.isPaused()) {
+                videoPlayer.resume();
+                audioPlayer.resume();
+            }
+        });
+
+        button_pause.setOnMouseClicked(event -> {
+            if (!videoPlayer.isPaused()) {
+                videoPlayer.pause();
+                audioPlayer.pause();
+            }
+        });
+        try{
+            FileInputStream fis = new FileInputStream(getClass().getResource("/snapshots/bg.png").getPath());
+            Image image = new Image(fis);
+            mediaplayer.setImage(image);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        progressbar_videoPlay.setProgress(0.0);
+
+
+//        Platform.runLater(()->{
+//            //set bufferedimages created in 24bit color space
+//            //mediaReader.setBufferedImageTypeToGenerate(BufferedImage.TYPE_3BYTE_BGR);
+//            //mediaReader.addListener(new ImageSnapListener());
+//            //mediaReader.addListener(new VideoListener());
+//            //while (mediaReader.readPacket() == null);
+//            doCapture();
+//            calculateCut();
+//            updateGallery(snapShots);
+//            Collections.sort(audioTimeStamps);
+//        });
+
+    }
+
+    private void loadFile(final File file) {
+        container = IContainer.make();
+        int result = container.open(file.getPath(),IContainer.Type.READ,null);
         if (result < 0) throw new RuntimeException("Failed to open media file");
-
+        FRAME_START = Integer.valueOf(text_framestart.getText());
+        FRAME_END = Integer.valueOf(text_frameend.getText());
+        if (FRAME_START >= FRAME_END) throw new RuntimeException("illegal input");
+        snapShots = new SnapShot[FRAME_END - FRAME_START + 1];
+        sds = new double[FRAME_END - FRAME_START + 1];
 
         int numStreams = container.getNumStreams(); // query how many streams the call to open found
         long duration = container.getDuration();// query for the total duration
         long fileSize = container.getFileSize();// query for the file size
         long bitRate = container.getBitRate();  // query for the bit rate
         String textArea = "";
-        for (int i = 0; i < numStreams; i++) {
-            IStream stream = container.getStream(i);
-            IStreamCoder coder = stream.getStreamCoder();
 
+        for(int i = 0; i < numStreams; ++i) {
+            IStream stream = container.getStream((long)i);
+            IStreamCoder coder = stream.getStreamCoder();
+            if (coder.getCodecType() == ICodec.Type.CODEC_TYPE_VIDEO) {
+                videoStreamId = i;
+                videoCoder = coder;
+            }
+            if (coder.getCodecType() == ICodec.Type.CODEC_TYPE_AUDIO) {
+                audioStreamId = i;
+                audioCoder = coder;
+            }
             textArea += "stream : " + i + "\n" +
                     "type: " + coder.getCodecType() +"\n"+
                     "codec: "+ coder.getCodecID() +"\n"+
@@ -149,53 +233,44 @@ public class Controller implements Initializable {
                     "frame-rate: "+ coder.getFrameRate().getDouble()+"\n";
         }
 
-        label_filename.setText("20020924_juve_dk_02a.avi");
+
+
+        label_filename.setText(file.getName());
         label_streams.setText(numStreams+"");
-        label_durations.setText(duration+"");
-        label_filesize.setText(fileSize+"");
+        label_durations.setText(duration/(1000*60)+" MIN");
+        label_filesize.setText((int)(fileSize/(1024*1024))+" MB");
         label_bitrate.setText(bitRate+"");
         text_streaminfo.appendText(textArea);
+        text_streaminfo.setEditable(false);
 
-        hBox = new HBox();
-        hBox.setSpacing(10);
-        //tilePane = new TilePane();
+        pb = new ProgressBar();
+        pb.setPrefWidth(1024);
+        scrollPane.setContent(pb);
+        pb.setProgress(0.0);
 
-
-        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
-        scrollPane.setFitToHeight(true);
-        scrollPane.setContent(hBox);
-        //addButtons(scrollPane, button_box);
-
-        try{
-            FileInputStream fis = new FileInputStream(getClass().getResource("/snapshots/frame_39987900.png").getPath());
-            Image image = new Image(fis);
-            mediaplayer.setImage(image);
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
-
-
-        Platform.runLater(()->{
-            //set bufferedimages created in 24bit color space
-            mediaReader.setBufferedImageTypeToGenerate(BufferedImage.TYPE_3BYTE_BGR);
-            mediaReader.addListener(new ImageSnapListener());
-            while (mediaReader.readPacket() == null);
-            calculateCut();
-            updateGallery(snapShots);
-
-        });
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                doCapture();
+                calculateCut();
+                updateGallery(snapShots);
+                Collections.sort(audioTimeStamps);
+            }
+        }).start();
         videoPlayer = new VideoPlayer(mediaplayer);
-        thread = new Thread(videoPlayer);
+        videoThread = new Thread(videoPlayer);
+        audioPlayer = new AudioPlayer();
+        audioThread = new Thread(audioPlayer);
+        openSound(container.getStream(audioStreamId).getStreamCoder());
 
     }
-
     private void calculateCut() {
         //calculate sds
-        for (int i = 0; i < 3999; i++) {
+        for (int i = 0; i < (FRAME_END - FRAME_START); i++) {
             for (int j = 0; j < 25; j++) {
                 sds[i] += Math.abs(snapShots[i+1].getIntensityHistogram()[j] - snapShots[i].getIntensityHistogram()[j]);
             }
+            pb.setProgress((double) i/(FRAME_END - FRAME_START + 1)*0.3+0.7);
         }
 
         Mean mean = new Mean();
@@ -213,7 +288,11 @@ public class Controller implements Initializable {
         int current_start = 0;
         int current_tor = 0;
         boolean inLoop = false;
-        for (int i = 0; i < 3999; i++) {
+        Cuts = new HashMap<>();
+        Fade = new HashMap<>();
+        FinalFade = new HashMap<>();
+        Starters = new LinkedList<>();
+        for (int i = 0; i < FRAME_END - FRAME_START; i++) {
             if(sds[i] >= Tb) {
                 Cuts.put(i, i+1);
                 if (inLoop) {
@@ -249,84 +328,110 @@ public class Controller implements Initializable {
             for (int i = start; i <= end; i++) {
                 sum+=sds[i];
             }
-            if (sum >= Tb){
+            if (sum >= Tb*0.7){
                 FinalFade.put(key, Fade.get(key));
             }
         }
 
         List<Integer> keys = new ArrayList<>(Cuts.keySet());
         List<Integer> keys2 = new ArrayList<>(FinalFade.keySet());
+        Starters.addAll(keys);
+        keys2.forEach( key -> {
+            Starters.add(key+1);
+        });
+        Collections.sort(Starters);
         Collections.sort(keys);
         Collections.sort(keys2);
-//        //Cut
-//        System.out.println("Ce:");
-//        keys.forEach(key -> {
-//            System.out.println(key+1000+"-"+(Cuts.get(key)+1000));
-//        });
+        //Cut
+        System.out.println("Ce:");
+        keys.forEach(key -> {
+            System.out.println(key+FRAME_START+"-"+(Cuts.get(key)+FRAME_START));
+        });
+
+        //Fade
+        System.out.println("Fs:");
+        keys2.forEach(key -> {
+            System.out.println(key+FRAME_START+"-"+(FinalFade.get(key)+FRAME_START));
+        });
+
+    }
+
+//    private class VideoListener extends MediaListenerAdapter {
+//        IPacket packet = IPacket.make();
+//        @Override
+//        public void onAudioSamples(IAudioSamplesEvent event) {
+//            if (event.getStreamIndex() != mAudioStreamIndex) {
+//                if (mAudioStreamIndex == -1){
+//                    mAudioStreamIndex = event.getStreamIndex();
+//                    Controller.this.openSound(Controller.this.audioStreamCoder);
+//                }
+//                else return;
+//            }
+//            if (mAudioStreamIndex == 1) {
+//                if ((double)event.getTimeStamp() / Global.DEFAULT_PTS_PER_SECOND >= 39.96 && (double)event.getTimeStamp()/Global.DEFAULT_PTS_PER_SECOND <= 199.92) {
+//                    //System.out.println(Arrays.toString(event.getMediaData().getData().getByteArray(0, event.getAudioSamples().getSize())));
+//                    //System.out.println("Audio"+ event.getTimeStamp());
+//                    soundData.put(event.getTimeStamp(),
+//                            event.getMediaData().getData().getByteArray(0, event.getAudioSamples().getSize()));
 //
-//        //Fade
-//        System.out.println("Fs:");
-//        keys2.forEach(key -> {
-//            System.out.println(key+1000+"-"+(FinalFade.get(key)+1000));
-//        });
+//                }
+//            }
+//        }
+//    }
 
-    }
-
-    private class ImageSnapListener extends MediaListenerAdapter {
-        int count = 0;
-        @Override
-        public void onVideoPicture(IVideoPictureEvent event) {
-            if (event.getStreamIndex() != mVideoStreamIndex){
-                if(mVideoStreamIndex == -1) mVideoStreamIndex = event.getStreamIndex();
-                else return;
-            }
-            if (mVideoStreamIndex == 0){
-                if (mLastPtsWrite == Global.NO_PTS)
-                    mLastPtsWrite = event.getTimeStamp() - MICRO_SECONDS_BETWEEN_FRAMES;
-
-                if ((double)event.getTimeStamp() / Global.DEFAULT_PTS_PER_SECOND >= 39.96/*40.88,40*/ && (double)event.getTimeStamp()/Global.DEFAULT_PTS_PER_SECOND <= 199.92/*200.84,199.960*/) {
-                    if ((double)event.getTimeStamp() - mLastPtsWrite >= MICRO_SECONDS_BETWEEN_FRAMES) {
-                        //String outputFilename = dumpImageToFile(event.getImage(), event.getTimeStamp());
-                        //String outputFilename = dumpImageToMemory(event.getImage());
-                        snapShots[count] = new SnapShot(event.getImage(),event.getTimeStamp(), count);
-                        count++;
-                        //double seconds= ((double) event.getTimeStamp())/ Global.DEFAULT_PTS_PER_SECOND;
-                        //System.out.printf("at elapsed time of %6.3f seconds wrote: %s\n", seconds, outputFilename);
-                        mLastPtsWrite += MICRO_SECONDS_BETWEEN_FRAMES;
-                    }
-                }
-            } else {
-                // drop audio
-            }
-
-
-        }
-
-        private String dumpImageToMemory(BufferedImage image){
-            return null;
-        }
-
-        private String dumpImageToFile(BufferedImage image, long timeStamp){
-            try{
-                String outputFilename = outputFilePrefix + "frame_"+timeStamp+".png";
-                ImageIO.write(image, "png", new File(outputFilename));
-                return outputFilename;
-            } catch (IOException e) {
-                e.printStackTrace();
-                return null;
-            }
-        }
-
-    }
+//    private class ImageSnapListener extends MediaListenerAdapter {
+//        int count = 0;
+//        @Override
+//        public void onVideoPicture(IVideoPictureEvent event) {
+//            if (event.getStreamIndex() != mVideoStreamIndex){
+//                if(mVideoStreamIndex == -1) mVideoStreamIndex = event.getStreamIndex();
+//                else return;
+//            }
+//            if (mVideoStreamIndex == 0){
+//                if (mLastPtsWrite == Global.NO_PTS)
+//                    mLastPtsWrite = event.getTimeStamp() - MICRO_SECONDS_BETWEEN_FRAMES;
+//
+//                if ((double)event.getTimeStamp() / Global.DEFAULT_PTS_PER_SECOND >= 39.96/*40.88,40*/ && (double)event.getTimeStamp()/Global.DEFAULT_PTS_PER_SECOND <= 199.92/*200.84,199.960*/) {
+//                    if ((double)event.getTimeStamp() - mLastPtsWrite >= MICRO_SECONDS_BETWEEN_FRAMES) {
+//                        //String outputFilename = dumpImageToFile(event.getImage(), event.getTimeStamp());
+//                        //String outputFilename = dumpImageToMemory(event.getImage());
+//                        snapShots[count] = new SnapShot(event.getImage(),event.getTimeStamp(), count);
+//                        count++;
+//                        //double seconds= ((double) event.getTimeStamp())/ Global.DEFAULT_PTS_PER_SECOND;
+//                        //System.out.printf("at elapsed time of %6.3f seconds wrote: %s\n", seconds, outputFilename);
+//                        mLastPtsWrite += MICRO_SECONDS_BETWEEN_FRAMES;
+//                    }
+//                }
+//            }
+//
+//
+//        }
+//
+//        private String dumpImageToMemory(BufferedImage image){
+//            return null;
+//        }
+//
+//        private String dumpImageToFile(BufferedImage image, long timeStamp){
+//            try{
+//                String outputFilename = outputFilePrefix + "frame_"+timeStamp+".png";
+//                ImageIO.write(image, "png", new File(outputFilename));
+//                return outputFilename;
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//                return null;
+//            }
+//        }
+//
+//    }
 
     private void updateGallery(SnapShot[] imageObjects) {
 
         Platform.runLater(() -> {
-
+            scrollPane.setContent(hBox);
             for (int i  = 0; i < imageObjects.length; i++) {
                 if ( Cuts.keySet().contains(i) || FinalFade.keySet().contains(i-1)){
-                    System.out.println(i);
-                    System.out.println(imageObjects[i].getId());
+                    //System.out.println(i);
+                    //System.out.println(imageObjects[i].getId());
                     ImageView imageView = createImageView(imageObjects[i]);
                     imageView.setFitHeight(160);
                     imageView.setPreserveRatio(true);
@@ -340,6 +445,143 @@ public class Controller implements Initializable {
 
     }
 
+    private void doCapture(){
+        audioSamplesMap = new HashMap<>();
+        audioTimeStamps = new LinkedList<>();
+        if (videoStreamId == -1 || audioStreamId == -1) {
+            throw new RuntimeException("could not find video or audio stream in container: ");
+        } else if (videoCoder.open() < 0) {
+            throw new RuntimeException("could not open video decoder for container: ");
+        } else if (audioCoder.open() < 0) {
+            throw new RuntimeException("could not open audio decoder for container: ");
+        } else {
+            IVideoResampler videoResampler = null;
+
+            if (videoCoder.getPixelType() != IPixelFormat.Type.BGR24) {
+                videoResampler = IVideoResampler.make(videoCoder.getWidth(), videoCoder.getHeight(), com.xuggle.xuggler.IPixelFormat.Type.BGR24, videoCoder.getWidth(), videoCoder.getHeight(), videoCoder.getPixelType());
+                if (videoResampler == null) {
+                    throw new RuntimeException("could not create color space resampler for: ");
+                }
+            }
+
+            IPacket packet = IPacket.make();
+            int count = 0;
+
+
+            while (true) {
+                IVideoPicture picture;
+                label123:
+                do {
+                    while(container.readNextPacket(packet) >= 0) {
+
+                        int offset = 0;
+                        if (packet.getStreamIndex() == videoStreamId){
+                            picture = IVideoPicture.make(videoCoder.getPixelType(), videoCoder.getWidth(), videoCoder.getHeight());
+                            offset = videoCoder.decodeVideo(picture, packet, 0);
+                            if (offset < 0) {
+
+                            }
+                            continue label123;
+                        }
+                        if (packet.getStreamIndex() == audioStreamId) {
+                            if(count >= FRAME_START && count <= FRAME_END){
+                                IAudioSamples samples = IAudioSamples.make(1024L, (long) audioCoder.getChannels());
+                                offset = 0;
+                                while (offset < packet.getSize()) {
+                                    int bytesDecoded = audioCoder.decodeAudio(samples, packet, offset);
+                                    if (bytesDecoded < 0) {
+
+                                    }
+                                    offset += bytesDecoded;
+
+                                    if (samples.isComplete()) {
+                                        //store
+                                        audioSamplesMap.put(samples.getTimeStamp(), samples);
+                                        audioTimeStamps.add(samples.getTimeStamp());
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+
+                    if (videoCoder != null) {
+                        videoCoder.close();
+                        videoCoder = null;
+                    }
+                    if (container != null) {
+                        container.close();
+                        container = null;
+                    }
+                    if (container != null) {
+                        container.close();
+                        container = null;
+                    }
+
+                    return;
+
+                } while (!picture.isComplete());
+
+                IVideoPicture newPic = picture;
+
+                if (count >= FRAME_START && count <= FRAME_END){
+
+                    if (videoResampler != null) {
+                        newPic = IVideoPicture.make(videoResampler.getOutputPixelFormat(), picture.getWidth(), picture.getHeight());
+                        if (videoResampler.resample(newPic, picture) < 0) {
+
+                        }
+                    }
+
+                    if (newPic.getPixelType() != IPixelFormat.Type.BGR24) {
+
+                    }
+                    BufferedImage image = Utils.videoPictureToImage(newPic);
+                    snapShots[count - FRAME_START] = new SnapShot(image, picture.getTimeStamp(),count - FRAME_START);
+                }
+                count++;
+                pb.setProgress((double)count/(FRAME_END - FRAME_START + 1) * 0.7);
+            }
+        }
+
+
+    }
+
+    private void openSound (IStreamCoder aAudioCoder){
+        AudioFormat audioFormat = new AudioFormat((float) aAudioCoder.getSampleRate(),
+                (int)IAudioSamples.findSampleBitDepth(aAudioCoder.getSampleFormat()),
+                aAudioCoder.getChannels(),
+                true,
+                false);
+        DataLine.Info info = new DataLine.Info(SourceDataLine.class, audioFormat);
+
+        try {
+            mLine = (SourceDataLine) AudioSystem.getLine(info);
+            mLine.open(audioFormat);
+            mLine.start();
+        } catch (LineUnavailableException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void playSound(IAudioSamples aSamples) {
+        byte[] rawBytes = aSamples.getData().getByteArray(0, aSamples.getSize());
+        mLine.write(rawBytes, 0, aSamples.getSize());
+
+    }
+
+    public void closeJavaSound() {
+        if (mLine != null) {
+            mLine.drain();
+            mLine.close();
+            mLine = null;
+        }
+    }
+
+    /**
+     * @param imageObject
+     * @return
+     */
     private ImageView createImageView(final SnapShot imageObject) {
         ImageView imageView;
 
@@ -358,25 +600,40 @@ public class Controller implements Initializable {
                     //System.out.println("=========");
                     //System.out.println(imageObject.getFilename().substring(6,14));
                     System.out.println(imageObject.getId());
-                    if (Cuts.containsKey(imageObject.getId())){
-                        start = imageObject.getId();
-                        end = imageObject.getId()+1;
-                    } else {
-                        start = imageObject.getId() - 1;
-                        end = FinalFade.get(imageObject.getId() - 1);
-                    }
 
-                    System.out.println(thread.getId()+thread.getState().toString());
-                    if (thread.getState() == Thread.State.RUNNABLE || thread.getState() == Thread.State.TIMED_WAITING) {
+                    start = imageObject.getId();
+                    int nextIndex = Starters.indexOf(start)+1;
+                    if (nextIndex >= Starters.size()) end = FRAME_END - FRAME_START;
+                    else end = Starters.get(nextIndex) - 1;
+                    System.out.println("Start: "+start+" end: "+end);
+                    long startTimeStamp =  imageObject.getTimestamp();
+                    long endTimeStamp = snapShots[end].getTimestamp();
+
+                    //System.out.println(thread.getId()+thread.getState().toString());
+
+                    if (videoThread.getState() == Thread.State.RUNNABLE || videoThread.getState() == Thread.State.TIMED_WAITING) {
                         //playing other shots
-                        threads.forEach(thread -> thread.terminate());
+                        videoThreads.forEach(thread -> thread.terminate());
+                        videoThreads.clear();
 
                     }
+                    if (audioThread.getState() == Thread.State.RUNNABLE || audioThread.getState() == Thread.State.TIMED_WAITING) {
+                        //playing other shots
+                        audioThreads.forEach(thread -> thread.terminate());
+                        audioThreads.clear();
+                    }
+
                     videoPlayer = new VideoPlayer(mediaplayer);
+                    audioPlayer = new AudioPlayer();
                     videoPlayer.setDurationAndStatus(start, end);
-                    thread = new Thread(videoPlayer);
-                    threads.add(videoPlayer);
-                    thread.start();
+                    audioPlayer.setTimeStamps(startTimeStamp, endTimeStamp);
+
+                    videoThread = new Thread(videoPlayer);
+                    audioThread = new Thread(audioPlayer);
+                    audioThreads.add(audioPlayer);
+                    videoThreads.add(videoPlayer);
+                    videoThread.start();
+                    audioThread.start();
 
                 }
 
@@ -388,67 +645,10 @@ public class Controller implements Initializable {
         return imageView;
     }
 
-    private void addButtons(final ScrollPane scrollPane, final AnchorPane buttonBox) {
-        Button right = new Button();
-        right.setPrefSize(50, 150);
-        right.setGraphic(new ImageView(new Image(RIGHT_ICON)));
-        //Making the scroll move right
-        right.setOnAction(new EventHandler<ActionEvent>() {
-
-            @Override
-            public void handle(ActionEvent arg0) {
-                scrollPane.setHvalue(scrollPane.getHvalue() + speed);
-            }
-        });
-
-        Button left = new Button("Left");
-        left.setPrefSize(50, 150);
-        left.setGraphic(new ImageView(new Image(LEFT_ICON)));
-        //Making the scroll move left
-        left.setOnAction(new EventHandler<ActionEvent>() {
-
-            @Override
-            public void handle(ActionEvent arg0) {
-                scrollPane.setHvalue(scrollPane.getHvalue() - speed);
-            }
-        });
-
-
-        buttonBox.setLeftAnchor(left, 1.0);
-        buttonBox.setRightAnchor(right, 1.0);
-        buttonBox.getChildren().addAll(left,right);
-    }
-
-    private void createVideo(int start, int end){
-        final IMediaWriter writer = ToolFactory.makeWriter(start+"_"+end);
-        long startTime = System.nanoTime();
-        for(int index = start; index < end ; index++) {
-            BufferedImage bgr = convertToType(snapShots[index].getBufferedImage(), BufferedImage.TYPE_3BYTE_BGR);
-            writer.encodeVideo(0, bgr, System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
-            try {
-                Thread.sleep((long) (1000/25));
-            } catch (InterruptedException e) {
-
-            }
-        }
-        writer.close();
-    }
-
-    private BufferedImage convertToType(BufferedImage sourceImage, int targetType) {
-        BufferedImage image;
-
-        if (sourceImage.getType() == targetType) {
-            image = sourceImage;
-        } else {
-            image = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(), targetType);
-            image.getGraphics().drawImage(sourceImage, 0, 0, null);
-        }
-        return image;
-    }
-
-    private class VideoPlayer implements Runnable{
+    class VideoPlayer implements Runnable{
         ImageView view;
         private volatile boolean running = true;
+        private volatile boolean paused = false;
         int start;
         int end;
         public VideoPlayer(ImageView view){
@@ -465,10 +665,13 @@ public class Controller implements Initializable {
                 try{
                     //play the video
                     synchronized (view){
-                        view.setImage(SwingFXUtils.toFXImage(snapShots[i++].getBufferedImage(), null));
-                        if (i == end) i = start;
-                        view.setCache(true);
-                        Thread.sleep(40);
+                        if (!paused){
+                            view.setImage(SwingFXUtils.toFXImage(snapShots[i++].getBufferedImage(), null));
+                            if (i == end) i = start;
+                            view.setCache(true);
+                            progressbar_videoPlay.setProgress((double) (i-start)/(end-start));
+                            Thread.sleep(40);
+                        }
                     }
                 } catch (InterruptedException e) {
                     e.printStackTrace();
@@ -477,12 +680,93 @@ public class Controller implements Initializable {
             }
             System.out.println("Thread "+Thread.currentThread().getId()+" stopped");
         }
+        public void pause() {
+            this.paused = true;
+        }
 
+        public void resume() {
+            this.paused = false;
+        }
         public void setDurationAndStatus(int start, int end){
             this.start = start;
             this.end = end;
             this.running = true;
         }
 
+        public boolean isPaused() {
+            return paused;
+        }
     }
+
+    class AudioPlayer implements Runnable{
+        private volatile boolean running = true;
+        private volatile boolean paused = false;
+        private long startTimestamp;
+        private long endTimestamp;
+        @Override
+        public void run() {
+            int startIndex = 0;
+            int endIndex = 0;
+            int index;
+            boolean foundStart = false;
+            boolean foundEnd = false;
+
+            for (long timestamp : Controller.this.audioTimeStamps) {
+                if (!foundStart && timestamp >= startTimestamp) {
+                    //startTimestamp = timestamp;
+                    startIndex = Controller.this.audioTimeStamps.indexOf(timestamp);
+                    foundStart = true;
+                }
+                if (!foundEnd && timestamp>= endTimestamp) {
+                    //endTimestamp = endTimestamp;
+                    endIndex = Controller.this.audioTimeStamps.indexOf(timestamp);
+                    foundEnd = true;
+                    break;
+                }
+            }
+            if (!foundEnd) {
+                endIndex = Controller.this.audioTimeStamps.size() - 1;
+            }
+
+            System.out.println("start audio:"+startIndex+" "+endIndex);
+            index = startIndex;
+            while (running) {
+                if (!paused) {
+                    Controller.this.playSound(Controller.this.audioSamplesMap.get(Controller.this.audioTimeStamps.get(index++)));
+                    if (index == endIndex) index = startIndex;
+                }
+            }
+        }
+
+        public void terminate() {
+            this.running = false;
+        }
+
+        public void pause() {
+            this.paused = true;
+        }
+
+        public void resume() {
+            this.paused = false;
+        }
+
+        public boolean isPaused() {
+            return paused;
+        }
+
+        public void setTimeStamps(long startTimestamp, long endTimestamp){
+            this.startTimestamp = startTimestamp;
+            this.endTimestamp = endTimestamp;
+        }
+    }
+
+    public VideoPlayer getVideoPlayer() {
+        return videoPlayer;
+    }
+
+    public AudioPlayer getAudioPlayer() {
+        return audioPlayer;
+    }
+
+
 }
